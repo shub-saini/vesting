@@ -8,6 +8,7 @@ import IDL from '../target/idl/vesting.json';
 import { SYSTEM_PROGRAM_ID } from '@coral-xyz/anchor/dist/cjs/native/system';
 import { createMint } from 'spl-token-bankrun';
 import { TOKEN_PROGRAM_ID } from '@coral-xyz/anchor/dist/cjs/utils/token';
+import { expect } from 'chai';
 
 describe('vesting', () => {
   const companyName = 'company';
@@ -81,7 +82,7 @@ describe('vesting', () => {
   });
 
   it('Initialize Vesting account', async () => {
-    const txn = await program.methods
+    await program.methods
       .initializeVesting(new BN(vestingAccountId), companyName)
       .accounts({
         mint: mint,
@@ -89,6 +90,13 @@ describe('vesting', () => {
       })
       .rpc({ commitment: 'confirmed', skipPreflight: false });
 
-    console.log('Initilize Vesting Account Signature', txn);
+    const vestingAccountData = await program.account.vestingAccount.fetch(
+      vestingAccount,
+      'confirmed'
+    );
+
+    expect(vestingAccountData.id.toString()).equal(vestingAccountId.toString());
+    expect(vestingAccountData.companyName).equal(companyName);
+    expect(vestingAccountData.mint.toBase58()).equal(mint.toBase58());
   });
 });
