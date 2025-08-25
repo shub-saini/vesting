@@ -1,20 +1,31 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
-use crate::{VestingAccount, ANCHOR_DISCRIMINATOR_SIZE};
+use crate::{
+    events::VestingAccountCreated, CustomError, VestingAccount, ANCHOR_DISCRIMINATOR_SIZE,
+};
 
 pub fn handler(ctx: Context<CreateVestingAccount>, id: u64, company_name: String) -> Result<()> {
-    let vesting_account = &mut ctx.accounts.vesting_account;
+    require!(company_name.len() <= 50, CustomError::CompanyNameTooLong);
 
-    vesting_account.set_inner(VestingAccount {
+    ctx.accounts.vesting_account.set_inner(VestingAccount {
         id,
-        employer: ctx.accounts.employer.key(),
+        admin: ctx.accounts.admin.key(),
         mint: ctx.accounts.mint.key(),
         treasury_token_account: ctx.accounts.treasury_token_account.key(),
-        company_name: company_name,
+        company_name: company_name.clone(),
         treasury_bump: ctx.bumps.treasury_token_account,
         bump: ctx.bumps.vesting_account,
     });
+
+    emit!(VestingAccountCreated {
+        id,
+        company_name,
+        admin: ctx.accounts.admin.key(),
+        mint: ctx.accounts.mint.key(),
+        treasury: ctx.accounts.treasury_token_account.key()
+    });
+
     Ok(())
 }
 
@@ -22,21 +33,20 @@ pub fn handler(ctx: Context<CreateVestingAccount>, id: u64, company_name: String
 #[instruction(id: u64, company_name: String)]
 pub struct CreateVestingAccount<'info> {
     #[account(mut)]
-    pub employer: Signer<'info>,
+    pub admin: Signer<'info>,
     #[account(mint::token_program = token_program)]
     pub mint: InterfaceAccount<'info, Mint>,
     #[account(
         init,
-        payer = employer,
+        payer = admin,
         space = ANCHOR_DISCRIMINATOR_SIZE + VestingAccount::INIT_SPACE,
-        seeds = [b"vesting_account", employer.key().as_ref(), company_name.as_bytes(), &id.to_le_bytes()],
-        // seeds = [b"vesting_account".as_ref(), company_name.as_bytes(), id.to_le_bytes().as_ref()],
+        seeds = [b"vesting_account", company_name.as_bytes(), &id.to_le_bytes()],
         bump
     )]
     pub vesting_account: Account<'info, VestingAccount>,
     #[account(
         init,
-        payer = employer,
+        payer = admin,
         token::mint = mint,
         token::authority = treasury_token_account,
         token::token_program = token_program,

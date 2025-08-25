@@ -66,7 +66,7 @@ pub fn generate_vesting_account_id() -> u64 {
 }
 
 pub fn get_initialize_vesting_discriminator() -> Vec<u8> {
-    let discriminator_input = b"global:initialize_vesting";
+    let discriminator_input = b"global:create_vesting_account";
     anchor_lang::solana_program::hash::hash(discriminator_input).to_bytes()[..8].to_vec()
 }
 
@@ -85,9 +85,6 @@ pub fn build_initialize_vesting_accounts(
     vesting_account: Pubkey,
     treasury_token_account: Pubkey,
 ) -> InitializeVestingAccounts {
-    let token_prog = Pubkey::from_str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").unwrap();
-    println!("Using token program: {:?}", token_prog);
-
     InitializeVestingAccounts {
         employer,
         mint,

@@ -23,6 +23,7 @@ describe('vesting', () => {
   let vestingAccount: PublicKey;
   let vestingAccountId: BN;
   let treasuryTokenAccount: PublicKey;
+  let vestingScheduleAccount: PublicKey;
 
   anchor.setProvider(anchor.AnchorProvider.env());
 
@@ -66,12 +67,7 @@ describe('vesting', () => {
     idBuf.writeBigUInt64LE(BigInt(vestingAccountId.toString()));
 
     [vestingAccount] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from('vesting_account'),
-        employer.publicKey.toBuffer(),
-        Buffer.from(companyName),
-        idBuf,
-      ],
+      [Buffer.from('vesting_account'), Buffer.from(companyName), idBuf],
       programId
     );
 
@@ -79,11 +75,20 @@ describe('vesting', () => {
       [Buffer.from('vesting_treasury'), vestingAccount.toBuffer()],
       programId
     );
+
+    [vestingScheduleAccount] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from('beneficiary_vesting_schedule'),
+        beneficiary.publicKey.toBuffer(),
+        vestingAccount.toBuffer(),
+      ],
+      programId
+    );
   });
 
-  it('Initialize Vesting account', async () => {
+  it('Create Vesting account', async () => {
     await program.methods
-      .initializeVesting(new BN(vestingAccountId), companyName)
+      .createVestingAccount(new BN(vestingAccountId), companyName)
       .accounts({
         mint: mint,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -98,5 +103,52 @@ describe('vesting', () => {
     expect(vestingAccountData.id.toString()).equal(vestingAccountId.toString());
     expect(vestingAccountData.companyName).equal(companyName);
     expect(vestingAccountData.mint.toBase58()).equal(mint.toBase58());
+  });
+
+  it('Initialize Vesting Schedule for beneficiary', async () => {
+    const startTime = new BN(0);
+    const endTime = new BN(1000);
+    const totalAmount = new BN(10 * 1_000_000_000);
+    const cliffTime = new BN(400);
+
+    await program.methods
+      .initializeVestingSchedule(startTime, endTime, totalAmount, cliffTime)
+      .accounts({
+        vestingAccount,
+        mint,
+        beneficiary: beneficiary.publicKey,
+      })
+      .rpc({ commitment: 'confirmed', skipPreflight: false });
+
+    const vestingScheduleData = await program.account.beneficiaryAccount.fetch(
+      vestingScheduleAccount
+    );
+
+    expect(vestingScheduleData.beneficiary.toBase58()).equal(
+      beneficiary.publicKey.toBase58()
+    );
+  });
+
+  it('should fail when time constraints violated', async () => {
+    const tempAccount = new Keypair();
+    const startTime = new BN(1000);
+    const endTime = new BN(1000);
+    const totalAmount = new BN(10 * 1_000_000_000);
+    const cliffTime = new BN(400);
+    try {
+      await program.methods
+        .initializeVestingSchedule(startTime, endTime, totalAmount, cliffTime)
+        .accounts({
+          vestingAccount,
+          mint,
+          beneficiary: tempAccount.publicKey,
+        })
+        .rpc({ commitment: 'confirmed', skipPreflight: false });
+
+      expect.fail('Time constraints not satisfied');
+    } catch (error) {
+      console.log(error);
+      expect(error.toString()).to.include('InvalidVestingSchedule');
+    }
   });
 });

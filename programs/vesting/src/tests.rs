@@ -24,7 +24,6 @@ pub fn test_initialize_vesting() {
     let (vesting_account, _vesting_bump) = get_pda_and_bump(
         &seeds![
             b"vesting_account".as_ref(),
-            test_environment.employer.pubkey().as_ref(),
             company_name.as_bytes(),
             vesting_id.to_le_bytes().as_ref(),
         ],
