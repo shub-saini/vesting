@@ -40,3 +40,9 @@ pub struct AdminChanged {
     pub old_admin: Pubkey,
     pub new_admin: Pubkey,
 }
+
+#[event]
+pub struct BeneficiaryAccountRevoked {
+    pub vestng_account: Pubkey,
+    pub beneficiary: Pubkey,
+}

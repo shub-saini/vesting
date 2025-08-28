@@ -12,3 +12,6 @@ pub use transfer_to_treasury::*;
 
 pub mod change_admin;
 pub use change_admin::*;
+
+pub mod revoke_beneficiary_account;
+pub use revoke_beneficiary_account::*;

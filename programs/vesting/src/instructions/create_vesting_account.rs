@@ -14,6 +14,7 @@ pub fn handler(ctx: Context<CreateVestingAccount>, id: u64, company_name: String
         mint: ctx.accounts.mint.key(),
         treasury_token_account: ctx.accounts.treasury_token_account.key(),
         company_name: company_name.clone(),
+        total_token_obligation: 0,
         treasury_bump: ctx.bumps.treasury_token_account,
         bump: ctx.bumps.vesting_account,
     });

@@ -9,6 +9,7 @@ pub struct VestingAccount {
     pub treasury_token_account: Pubkey,
     #[max_len(50)]
     pub company_name: String,
+    pub total_token_obligation: u64,
     pub treasury_bump: u8,
     pub bump: u8,
 }

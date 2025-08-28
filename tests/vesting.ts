@@ -31,7 +31,7 @@ describe('vesting', () => {
   const VESTING_END_TIME = 1000;
   const VESTING_CLIFF_TIME = 400;
   const VESTING_ACCOUNT_ID = new BN(1);
-  const ASSIGNED_AMOUNT_TO_BENEFICIARY = new BN(100);
+  const ASSIGNED_AMOUNT_TO_BENEFICIARY = new BN(10);
 
   let provider: BankrunProvider;
   let context: ProgramTestContext;
@@ -46,7 +46,7 @@ describe('vesting', () => {
   let beneficiaryProvider: BankrunProvider;
   const decimals = 9;
   const LAMPORTS_PER_MINT_TOKEN = new BN(10 * decimals);
-  const TOKEN_FUNDED_AMOUNT = new BN(10_000);
+  const TOKEN_FUNDED_AMOUNT = new BN(100);
   let vestingAccount: PublicKey;
   let treasuryTokenAccount: PublicKey;
   let beneficiaryVestingAccount: PublicKey;
@@ -178,6 +178,41 @@ describe('vesting', () => {
     );
   });
 
+  it('Transfering token to vesting treasury fails if invalid Mint', async () => {
+    const tempMint = await createMint(
+      // @ts-ignore
+      banksClient,
+      employer,
+      employer.publicKey,
+      null,
+      decimals
+    );
+
+    const tempEmployer_ata = await createAssociatedTokenAccount(
+      // @ts-ignore
+      banksClient,
+      employer,
+      tempMint,
+      employer.publicKey
+    );
+
+    try {
+      await program.methods
+        .transferTokensToTreasury(
+          TOKEN_FUNDED_AMOUNT.mul(LAMPORTS_PER_MINT_TOKEN)
+        )
+        .accounts({
+          funder: employer.publicKey,
+          mint: tempMint,
+          vestingAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc({ commitment: 'confirmed', skipPreflight: false });
+    } catch (error) {
+      expect(error.toString()).to.includes('InvalidMint');
+    }
+  });
+
   it('Initialize Vesting Schedule for beneficiary', async () => {
     const startTime = new BN(VESTING_START_TIME);
     const endTime = new BN(VESTING_END_TIME);
@@ -202,6 +237,48 @@ describe('vesting', () => {
     expect(vestingScheduleData.beneficiary.toBase58()).equal(
       beneficiary.publicKey.toBase58()
     );
+  });
+
+  it('Initialize Vesting fails if total_amount is less than 1', async () => {
+    const tempAccount = new Keypair();
+    const startTime = new BN(VESTING_START_TIME);
+    const endTime = new BN(VESTING_END_TIME);
+    const totalAmount = new BN(0);
+    const cliffTime = new BN(VESTING_CLIFF_TIME);
+
+    try {
+      await program.methods
+        .initializeVestingSchedule(startTime, endTime, totalAmount, cliffTime)
+        .accounts({
+          vestingAccount,
+          mint,
+          beneficiary: tempAccount.publicKey,
+        })
+        .rpc({ commitment: 'confirmed', skipPreflight: false });
+    } catch (error) {
+      expect(error.toString()).to.include('VestingAmountShoulBePositive');
+    }
+  });
+
+  it('Vesting Schedule Initialization fails if treasury doesnt have enough money', async () => {
+    const tempAccount = new Keypair();
+    const startTime = new BN(VESTING_START_TIME);
+    const endTime = new BN(VESTING_END_TIME);
+    const totalAmount = LAMPORTS_PER_MINT_TOKEN.mul(LAMPORTS_PER_MINT_TOKEN);
+    const cliffTime = new BN(VESTING_CLIFF_TIME);
+
+    try {
+      await program.methods
+        .initializeVestingSchedule(startTime, endTime, totalAmount, cliffTime)
+        .accounts({
+          vestingAccount,
+          mint,
+          beneficiary: tempAccount.publicKey,
+        })
+        .rpc({ commitment: 'confirmed', skipPreflight: false });
+    } catch (error) {
+      expect(error.toString()).to.include('NotEnoughTokensInTreasury');
+    }
   });
 
   it('should fail when time constraints violated', async () => {
@@ -293,5 +370,21 @@ describe('vesting', () => {
     admin = (await program.account.vestingAccount.fetch(vestingAccount)).admin;
 
     expect(admin.toBase58()).equal(employer.publicKey.toBase58());
+  });
+
+  it('Admin Change fail if not done by admin', async () => {
+    try {
+      await beneficiaryProgram.methods
+        .changeAdmin()
+        .accounts({
+          admin: beneficiary.publicKey,
+          vestingAccount,
+          newAdmin: employer.publicKey,
+        })
+        .signers([beneficiary])
+        .rpc({ commitment: 'confirmed', skipPreflight: true });
+    } catch (error) {
+      expect(error.toString()).to.includes('UnAuthorized');
+    }
   });
 });

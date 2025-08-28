@@ -22,9 +22,16 @@ pub fn handler(ctx: Context<ClaimTokens>) -> Result<()> {
     let total_vesting_time = beneficiary_vesting_account
         .end_time
         .saturating_sub(beneficiary_vesting_account.start_time);
-    let time_since_start = now.saturating_sub(beneficiary_vesting_account.start_time);
 
-    let vested_amount = if now > beneficiary_vesting_account.end_time {
+    let effective_time = if beneficiary_vesting_account.revoke_at != None {
+        beneficiary_vesting_account.revoke_at.unwrap()
+    } else {
+        now
+    };
+
+    let time_since_start = effective_time.saturating_sub(beneficiary_vesting_account.start_time);
+
+    let vested_amount = if effective_time > beneficiary_vesting_account.end_time {
         beneficiary_vesting_account.total_amount
     } else {
         beneficiary_vesting_account.total_amount * (time_since_start / total_vesting_time)

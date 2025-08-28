@@ -10,5 +10,6 @@ pub struct BeneficiaryAccount {
     pub total_amount: i64,
     pub total_withdrawn: i64,
     pub cliff_time: i64,
+    pub revoke_at: Option<i64>,
     pub bump: u8,
 }

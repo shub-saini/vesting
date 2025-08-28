@@ -16,4 +16,8 @@ pub enum CustomError {
     InvalidMint,
     #[msg("This operation can only be perfomed by the admin")]
     UnAuthorized,
+    #[msg("Cannot revoke after vesting is complete")]
+    RevokeNotNeeded,
+    #[msg("Treasury does not have enough tokens to complete the operation")]
+    NotEnoughTokensInTreasury,
 }

@@ -60,17 +60,12 @@ pub mod vesting {
     }
 
     pub fn change_admin(ctx: Context<ChangeAdmin>) -> Result<()> {
-        chage_admin(ctx)
+        change_admin::handler(ctx)
     }
 
-    // pub fn update_vesting_schedule() -> Result<()> {}
-
-    // schedule for multiple beneficiaries ????
-    // pub fn create_batch_vesting_schedules() -> Result<()> {}
-
-    // pub fn pause_vesting() -> Result<()> {}
-
-    // pub fn resume_vesting() -> Result<()> {}
+    pub fn revoke_beneficiary_account(ctx: Context<RevokeAccount>) -> Result<()> {
+        revoke_beneficiary_account::handler(ctx)
+    }
 }
 
 #[cfg(test)]

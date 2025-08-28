@@ -49,7 +49,6 @@ pub struct TransferToTreasury<'info> {
         seeds = [b"vesting_treasury", vesting_account.key().as_ref()],
         bump = vesting_account.treasury_bump,
         constraint = treasury_token_account.mint == vesting_account.mint @CustomError::InvalidMint
-
     )]
     pub treasury_token_account: InterfaceAccount<'info, TokenAccount>,
 

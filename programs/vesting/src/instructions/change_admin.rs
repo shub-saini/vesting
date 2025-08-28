@@ -1,12 +1,8 @@
 use anchor_lang::prelude::*;
 
-use crate::{
-    error::CustomError,
-    events::AdminChanged,
-    state::{vesting_account, VestingAccount},
-};
+use crate::{error::CustomError, events::AdminChanged, state::VestingAccount};
 
-pub fn chage_admin(ctx: Context<ChangeAdmin>) -> Result<()> {
+pub fn handler(ctx: Context<ChangeAdmin>) -> Result<()> {
     let vesting_account = &mut ctx.accounts.vesting_account;
     let old_admin = ctx.accounts.admin.key();
 

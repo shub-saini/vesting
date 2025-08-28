@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::Mint;
+use anchor_spl::token_interface::{Mint, TokenAccount};
 
 use crate::{
     constant::ANCHOR_DISCRIMINATOR_SIZE,
@@ -31,8 +31,18 @@ pub fn handler(
             total_amount,
             total_withdrawn: 0,
             cliff_time,
+            revoke_at: None,
             bump: ctx.bumps.beneficiary_vesting_account,
         });
+
+    let treasury_amount = ctx.accounts.treasury_token_account.amount;
+
+    ctx.accounts.vesting_account.total_token_obligation += total_amount as u64;
+
+    require!(
+        treasury_amount > ctx.accounts.vesting_account.total_token_obligation,
+        CustomError::NotEnoughTokensInTreasury
+    );
 
     emit!(VestingScheduleInitialized {
         beneficiary: ctx.accounts.beneficiary.key(),
@@ -65,5 +75,10 @@ pub struct InitializeVestingSchedule<'info> {
         bump
     )]
     pub beneficiary_vesting_account: Account<'info, BeneficiaryAccount>,
+    #[account(
+        seeds = [b"vesting_treasury", vesting_account.key().as_ref()],
+        bump
+    )]
+    pub treasury_token_account: InterfaceAccount<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
 }
