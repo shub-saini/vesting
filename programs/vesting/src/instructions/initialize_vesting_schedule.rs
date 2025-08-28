@@ -12,14 +12,14 @@ pub fn handler(
     ctx: Context<InitializeVestingSchedule>,
     start_time: i64,
     end_time: i64,
-    total_amount: u64,
+    total_amount: i64,
     cliff_time: i64,
 ) -> Result<()> {
     require!(
         start_time < end_time && start_time < cliff_time && cliff_time < end_time,
         CustomError::InvalidVestingSchedule
     );
-    require!(total_amount != 0, CustomError::VestingAmountCannotBeZero);
+    require!(total_amount > 0, CustomError::VestingAmountShoulBePositive);
 
     ctx.accounts
         .beneficiary_vesting_account
@@ -49,6 +49,11 @@ pub fn handler(
 pub struct InitializeVestingSchedule<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
+    #[account(
+        mut,
+        constraint = vesting_account.admin == admin.key() @CustomError::UnAuthorized,
+        constraint = vesting_account.mint == mint.key() @CustomError::InvalidMint
+    )]
     pub vesting_account: Account<'info, VestingAccount>,
     pub mint: InterfaceAccount<'info, Mint>,
     pub beneficiary: SystemAccount<'info>,
@@ -56,7 +61,7 @@ pub struct InitializeVestingSchedule<'info> {
         init,
         payer = admin,
         space = ANCHOR_DISCRIMINATOR_SIZE + BeneficiaryAccount::INIT_SPACE,
-        seeds = [b"beneficiary_vesting_schedule", beneficiary.key().as_ref(), vesting_account.key().as_ref()],
+        seeds = [b"beneficiary_vesting_account", beneficiary.key().as_ref(), vesting_account.key().as_ref()],
         bump
     )]
     pub beneficiary_vesting_account: Account<'info, BeneficiaryAccount>,

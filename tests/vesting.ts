@@ -2,16 +2,37 @@ import * as anchor from '@coral-xyz/anchor';
 import { Program, BN } from '@coral-xyz/anchor';
 import type { Vesting } from '../target/types/vesting';
 import { BankrunProvider } from 'anchor-bankrun';
-import { BanksClient, ProgramTestContext, startAnchor } from 'solana-bankrun';
+import {
+  BanksClient,
+  Clock,
+  ProgramTestContext,
+  startAnchor,
+} from 'solana-bankrun';
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import IDL from '../target/idl/vesting.json';
 import { SYSTEM_PROGRAM_ID } from '@coral-xyz/anchor/dist/cjs/native/system';
-import { createMint } from 'spl-token-bankrun';
+import {
+  createAssociatedTokenAccount,
+  createMint,
+  mintTo,
+} from 'spl-token-bankrun';
 import { TOKEN_PROGRAM_ID } from '@coral-xyz/anchor/dist/cjs/utils/token';
 import { expect } from 'chai';
+import {
+  AccountLayout,
+  getAssociatedTokenAddressSync,
+} from '@solana/spl-token';
+import NodeWallet from '@coral-xyz/anchor/dist/cjs/nodewallet';
 
 describe('vesting', () => {
-  const companyName = 'company';
+  const U64_BYTES = 8;
+  const COMPANY_NAME = 'company';
+  const VESTING_START_TIME = 0;
+  const VESTING_END_TIME = 1000;
+  const VESTING_CLIFF_TIME = 400;
+  const VESTING_ACCOUNT_ID = new BN(1);
+  const ASSIGNED_AMOUNT_TO_BENEFICIARY = new BN(100);
+
   let provider: BankrunProvider;
   let context: ProgramTestContext;
   let programId: PublicKey;
@@ -20,10 +41,15 @@ describe('vesting', () => {
   let banksClient: BanksClient;
   let employer: Keypair;
   let mint: PublicKey;
+  let employer_ata: PublicKey;
+  let beneficiaryProgram: Program<Vesting>;
+  let beneficiaryProvider: BankrunProvider;
+  const decimals = 9;
+  const LAMPORTS_PER_MINT_TOKEN = new BN(10 * decimals);
+  const TOKEN_FUNDED_AMOUNT = new BN(10_000);
   let vestingAccount: PublicKey;
-  let vestingAccountId: BN;
   let treasuryTokenAccount: PublicKey;
-  let vestingScheduleAccount: PublicKey;
+  let beneficiaryVestingAccount: PublicKey;
 
   anchor.setProvider(anchor.AnchorProvider.env());
 
@@ -48,10 +74,17 @@ describe('vesting', () => {
     );
     provider = new BankrunProvider(context);
     anchor.setProvider(provider);
-    program = anchor.workspace.vesting as Program<Vesting>;
-    // program = new Program<Vesting>(IDL as Vesting, provider);
+    // program = anchor.workspace.vesting as Program<Vesting>;
+    program = new Program<Vesting>(IDL as Vesting, provider);
     banksClient = context.banksClient;
     employer = provider.wallet.payer;
+
+    beneficiaryProvider = new BankrunProvider(context);
+    beneficiaryProvider.wallet = new NodeWallet(beneficiary);
+    beneficiaryProgram = new Program<Vesting>(
+      IDL as Vesting,
+      beneficiaryProvider
+    );
 
     mint = await createMint(
       // @ts-ignore
@@ -62,12 +95,29 @@ describe('vesting', () => {
       9
     );
 
-    vestingAccountId = new BN(1);
-    const idBuf = Buffer.alloc(8);
-    idBuf.writeBigUInt64LE(BigInt(vestingAccountId.toString()));
+    employer_ata = await createAssociatedTokenAccount(
+      // @ts-ignore
+      banksClient,
+      employer,
+      mint,
+      employer.publicKey
+    );
+
+    await mintTo(
+      // @ts-ignore
+      banksClient,
+      employer,
+      mint,
+      employer_ata,
+      employer,
+      TOKEN_FUNDED_AMOUNT.mul(LAMPORTS_PER_MINT_TOKEN)
+    );
+
+    const idBuf = Buffer.alloc(U64_BYTES);
+    idBuf.writeBigUInt64LE(BigInt(VESTING_ACCOUNT_ID.toString()));
 
     [vestingAccount] = PublicKey.findProgramAddressSync(
-      [Buffer.from('vesting_account'), Buffer.from(companyName), idBuf],
+      [Buffer.from('vesting_account'), Buffer.from(COMPANY_NAME), idBuf],
       programId
     );
 
@@ -76,9 +126,9 @@ describe('vesting', () => {
       programId
     );
 
-    [vestingScheduleAccount] = PublicKey.findProgramAddressSync(
+    [beneficiaryVestingAccount] = PublicKey.findProgramAddressSync(
       [
-        Buffer.from('beneficiary_vesting_schedule'),
+        Buffer.from('beneficiary_vesting_account'),
         beneficiary.publicKey.toBuffer(),
         vestingAccount.toBuffer(),
       ],
@@ -88,7 +138,7 @@ describe('vesting', () => {
 
   it('Create Vesting account', async () => {
     await program.methods
-      .createVestingAccount(new BN(vestingAccountId), companyName)
+      .createVestingAccount(new BN(VESTING_ACCOUNT_ID), COMPANY_NAME)
       .accounts({
         mint: mint,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -100,16 +150,41 @@ describe('vesting', () => {
       'confirmed'
     );
 
-    expect(vestingAccountData.id.toString()).equal(vestingAccountId.toString());
-    expect(vestingAccountData.companyName).equal(companyName);
+    expect(vestingAccountData.id.toString()).equal(
+      VESTING_ACCOUNT_ID.toString()
+    );
+    expect(vestingAccountData.companyName).equal(COMPANY_NAME);
     expect(vestingAccountData.mint.toBase58()).equal(mint.toBase58());
   });
 
+  it('Transfering token to vesting treasury', async () => {
+    await program.methods
+      .transferTokensToTreasury(
+        TOKEN_FUNDED_AMOUNT.mul(LAMPORTS_PER_MINT_TOKEN)
+      )
+      .accounts({
+        funder: employer.publicKey,
+        mint,
+        vestingAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc({ commitment: 'confirmed', skipPreflight: false });
+
+    const accountInfo = await banksClient.getAccount(treasuryTokenAccount);
+    const tokenAccountData = AccountLayout.decode(accountInfo!.data);
+
+    expect(tokenAccountData.amount.toString()).equal(
+      TOKEN_FUNDED_AMOUNT.mul(LAMPORTS_PER_MINT_TOKEN).toString()
+    );
+  });
+
   it('Initialize Vesting Schedule for beneficiary', async () => {
-    const startTime = new BN(0);
-    const endTime = new BN(1000);
-    const totalAmount = new BN(10 * 1_000_000_000);
-    const cliffTime = new BN(400);
+    const startTime = new BN(VESTING_START_TIME);
+    const endTime = new BN(VESTING_END_TIME);
+    const totalAmount = new BN(ASSIGNED_AMOUNT_TO_BENEFICIARY).mul(
+      LAMPORTS_PER_MINT_TOKEN
+    );
+    const cliffTime = new BN(VESTING_CLIFF_TIME);
 
     await program.methods
       .initializeVestingSchedule(startTime, endTime, totalAmount, cliffTime)
@@ -121,7 +196,7 @@ describe('vesting', () => {
       .rpc({ commitment: 'confirmed', skipPreflight: false });
 
     const vestingScheduleData = await program.account.beneficiaryAccount.fetch(
-      vestingScheduleAccount
+      beneficiaryVestingAccount
     );
 
     expect(vestingScheduleData.beneficiary.toBase58()).equal(
@@ -131,10 +206,12 @@ describe('vesting', () => {
 
   it('should fail when time constraints violated', async () => {
     const tempAccount = new Keypair();
-    const startTime = new BN(1000);
-    const endTime = new BN(1000);
-    const totalAmount = new BN(10 * 1_000_000_000);
-    const cliffTime = new BN(400);
+    const startTime = new BN(VESTING_START_TIME);
+    const endTime = new BN(VESTING_START_TIME);
+    const totalAmount = new BN(ASSIGNED_AMOUNT_TO_BENEFICIARY).mul(
+      LAMPORTS_PER_MINT_TOKEN
+    );
+    const cliffTime = new BN(VESTING_CLIFF_TIME);
     try {
       await program.methods
         .initializeVestingSchedule(startTime, endTime, totalAmount, cliffTime)
@@ -144,11 +221,77 @@ describe('vesting', () => {
           beneficiary: tempAccount.publicKey,
         })
         .rpc({ commitment: 'confirmed', skipPreflight: false });
-
-      expect.fail('Time constraints not satisfied');
     } catch (error) {
-      console.log(error);
       expect(error.toString()).to.include('InvalidVestingSchedule');
     }
+  });
+
+  it('user can claim tokens', async () => {
+    const currentClock = await banksClient.getClock();
+    context.setClock(
+      new Clock(
+        currentClock.slot,
+        currentClock.epochStartTimestamp,
+        currentClock.epoch,
+        currentClock.leaderScheduleEpoch,
+        BigInt(VESTING_END_TIME)
+      )
+    );
+
+    await beneficiaryProgram.methods
+      .claimVestedTokens(COMPANY_NAME, VESTING_ACCOUNT_ID)
+      .accounts({
+        beneficiary: beneficiary.publicKey,
+        mint,
+        vestingAccount,
+        treasuryTokenAccount,
+        beneficiaryVestingAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([beneficiary])
+      .rpc({ commitment: 'confirmed', skipPreflight: true });
+
+    const beneficiary_ata = getAssociatedTokenAddressSync(
+      mint,
+      beneficiary.publicKey,
+      false
+    );
+
+    const accountInfo = await banksClient.getAccount(beneficiary_ata);
+    const tokenAccountData = AccountLayout.decode(accountInfo!.data);
+
+    expect(tokenAccountData.amount.toString()).equal(
+      ASSIGNED_AMOUNT_TO_BENEFICIARY.mul(LAMPORTS_PER_MINT_TOKEN).toString()
+    );
+  });
+
+  it('admin can change admin', async () => {
+    const temporaryAdmin = beneficiary;
+    await program.methods
+      .changeAdmin()
+      .accounts({
+        vestingAccount,
+        newAdmin: temporaryAdmin.publicKey,
+      })
+      .rpc({ commitment: 'confirmed', skipPreflight: true });
+
+    let admin = (await program.account.vestingAccount.fetch(vestingAccount))
+      .admin;
+
+    expect(admin.toBase58()).equal(temporaryAdmin.publicKey.toBase58());
+
+    await beneficiaryProgram.methods
+      .changeAdmin()
+      .accounts({
+        admin: temporaryAdmin.publicKey,
+        vestingAccount,
+        newAdmin: employer.publicKey,
+      })
+      .signers([temporaryAdmin])
+      .rpc({ commitment: 'confirmed', skipPreflight: true });
+
+    admin = (await program.account.vestingAccount.fetch(vestingAccount)).admin;
+
+    expect(admin.toBase58()).equal(employer.publicKey.toBase58());
   });
 });

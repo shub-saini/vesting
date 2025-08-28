@@ -32,7 +32,7 @@ pub mod vesting {
         ctx: Context<InitializeVestingSchedule>,
         start_time: i64,
         end_time: i64,
-        total_amount: u64,
+        total_amount: i64,
         cliff_time: i64,
     ) -> Result<()> {
         instructions::initialize_vesting_schedule::handler(
@@ -44,21 +44,33 @@ pub mod vesting {
         )
     }
 
-    // pub fn claim_vested_tokens() -> Result<()> {}
+    pub fn claim_vested_tokens(
+        ctx: Context<ClaimTokens>,
+        _company_name: String,
+        _id: u64,
+    ) -> Result<()> {
+        claim_vested_tokens::handler(ctx)
+    }
 
-    // pub fn change_admin() -> Result<()> {}
+    pub fn transfer_tokens_to_treasury(
+        ctx: Context<TransferToTreasury>,
+        amount: u64,
+    ) -> Result<()> {
+        transfer_to_treasury(ctx, amount)
+    }
+
+    pub fn change_admin(ctx: Context<ChangeAdmin>) -> Result<()> {
+        chage_admin(ctx)
+    }
 
     // pub fn update_vesting_schedule() -> Result<()> {}
 
+    // schedule for multiple beneficiaries ????
     // pub fn create_batch_vesting_schedules() -> Result<()> {}
-
-    // pub fn transfer_tokens_to_treasury() -> Result<()> {}
 
     // pub fn pause_vesting() -> Result<()> {}
 
     // pub fn resume_vesting() -> Result<()> {}
-
-    // schedule for multiple beneficiaries ????
 }
 
 #[cfg(test)]

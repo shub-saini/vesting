@@ -6,6 +6,14 @@ pub enum CustomError {
     CompanyNameTooLong,
     #[msg("Time constraints not satisfied")]
     InvalidVestingSchedule,
-    #[msg("Total claimable vesting amount cannot be zero")]
-    VestingAmountCannotBeZero,
+    #[msg("Total claimable vesting amount should be positive")]
+    VestingAmountShoulBePositive,
+    #[msg("Vesting has not started yet")]
+    ClaimNotAvailableYet,
+    #[msg("There is nothing to claim")]
+    NothingToClaim,
+    #[msg("Invalid Mint for vesting account")]
+    InvalidMint,
+    #[msg("This operation can only be perfomed by the admin")]
+    UnAuthorized,
 }
