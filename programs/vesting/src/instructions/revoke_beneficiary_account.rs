@@ -8,7 +8,7 @@ use crate::{
 pub fn handler(ctx: Context<RevokeAccount>) -> Result<()> {
     let beneficiary_vesting_account = &mut ctx.accounts.beneficiary_vesting_account;
     require!(
-        beneficiary_vesting_account.total_amount == beneficiary_vesting_account.total_withdrawn,
+        beneficiary_vesting_account.total_amount > beneficiary_vesting_account.total_withdrawn,
         CustomError::RevokeNotNeeded
     );
 

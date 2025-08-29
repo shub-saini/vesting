@@ -34,7 +34,7 @@ pub fn handler(ctx: Context<ClaimTokens>) -> Result<()> {
     let vested_amount = if effective_time > beneficiary_vesting_account.end_time {
         beneficiary_vesting_account.total_amount
     } else {
-        beneficiary_vesting_account.total_amount * (time_since_start / total_vesting_time)
+        (beneficiary_vesting_account.total_amount * time_since_start) / total_vesting_time
     };
 
     let claimable_amount =

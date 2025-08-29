@@ -28,8 +28,9 @@ describe('vesting', () => {
   const U64_BYTES = 8;
   const COMPANY_NAME = 'company';
   const VESTING_START_TIME = 0;
-  const VESTING_END_TIME = 1000;
   const VESTING_CLIFF_TIME = 400;
+  const VESTING_END_TIME = 1000;
+  const VESTING_MIDDLE_TIME_AFTER_CLIFF = 500;
   const VESTING_ACCOUNT_ID = new BN(1);
   const ASSIGNED_AMOUNT_TO_BENEFICIARY = new BN(10);
 
@@ -45,7 +46,7 @@ describe('vesting', () => {
   let beneficiaryProgram: Program<Vesting>;
   let beneficiaryProvider: BankrunProvider;
   const decimals = 9;
-  const LAMPORTS_PER_MINT_TOKEN = new BN(10 * decimals);
+  const LAMPORTS_PER_MINT_TOKEN = new BN(10 ** decimals);
   const TOKEN_FUNDED_AMOUNT = new BN(100);
   let vestingAccount: PublicKey;
   let treasuryTokenAccount: PublicKey;
@@ -188,7 +189,7 @@ describe('vesting', () => {
       decimals
     );
 
-    const tempEmployer_ata = await createAssociatedTokenAccount(
+    await createAssociatedTokenAccount(
       // @ts-ignore
       banksClient,
       employer,
@@ -303,45 +304,6 @@ describe('vesting', () => {
     }
   });
 
-  it('user can claim tokens', async () => {
-    const currentClock = await banksClient.getClock();
-    context.setClock(
-      new Clock(
-        currentClock.slot,
-        currentClock.epochStartTimestamp,
-        currentClock.epoch,
-        currentClock.leaderScheduleEpoch,
-        BigInt(VESTING_END_TIME)
-      )
-    );
-
-    await beneficiaryProgram.methods
-      .claimVestedTokens(COMPANY_NAME, VESTING_ACCOUNT_ID)
-      .accounts({
-        beneficiary: beneficiary.publicKey,
-        mint,
-        vestingAccount,
-        treasuryTokenAccount,
-        beneficiaryVestingAccount,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .signers([beneficiary])
-      .rpc({ commitment: 'confirmed', skipPreflight: true });
-
-    const beneficiary_ata = getAssociatedTokenAddressSync(
-      mint,
-      beneficiary.publicKey,
-      false
-    );
-
-    const accountInfo = await banksClient.getAccount(beneficiary_ata);
-    const tokenAccountData = AccountLayout.decode(accountInfo!.data);
-
-    expect(tokenAccountData.amount.toString()).equal(
-      ASSIGNED_AMOUNT_TO_BENEFICIARY.mul(LAMPORTS_PER_MINT_TOKEN).toString()
-    );
-  });
-
   it('admin can change admin', async () => {
     const temporaryAdmin = beneficiary;
     await program.methods
@@ -373,18 +335,129 @@ describe('vesting', () => {
   });
 
   it('Admin Change fail if not done by admin', async () => {
+    const tempAccount = new Keypair();
     try {
       await beneficiaryProgram.methods
         .changeAdmin()
         .accounts({
           admin: beneficiary.publicKey,
           vestingAccount,
-          newAdmin: employer.publicKey,
+          newAdmin: tempAccount.publicKey,
         })
         .signers([beneficiary])
         .rpc({ commitment: 'confirmed', skipPreflight: true });
     } catch (error) {
       expect(error.toString()).to.includes('UnAuthorized');
+    }
+  });
+
+  it('user can claim tokens linearly', async () => {
+    const currentClock = await banksClient.getClock();
+    context.setClock(
+      new Clock(
+        currentClock.slot,
+        currentClock.epochStartTimestamp,
+        currentClock.epoch,
+        currentClock.leaderScheduleEpoch,
+        BigInt(VESTING_MIDDLE_TIME_AFTER_CLIFF)
+      )
+    );
+
+    await beneficiaryProgram.methods
+      .claimVestedTokens(COMPANY_NAME, VESTING_ACCOUNT_ID)
+      .accounts({
+        beneficiary: beneficiary.publicKey,
+        mint,
+        vestingAccount,
+        treasuryTokenAccount,
+        beneficiaryVestingAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([beneficiary])
+      .rpc({ commitment: 'confirmed', skipPreflight: true });
+
+    const beneficiary_ata = getAssociatedTokenAddressSync(
+      mint,
+      beneficiary.publicKey,
+      false
+    );
+
+    const accountInfo = await banksClient.getAccount(beneficiary_ata);
+    const tokenAccountData = AccountLayout.decode(accountInfo!.data);
+
+    expect(tokenAccountData.amount.toString()).equal(
+      ASSIGNED_AMOUNT_TO_BENEFICIARY.mul(LAMPORTS_PER_MINT_TOKEN)
+        .mul(new BN(VESTING_MIDDLE_TIME_AFTER_CLIFF))
+        .div(new BN(VESTING_END_TIME))
+        .toString()
+    );
+  });
+
+  it('token claims fails when there is nothing to claim', async () => {
+    try {
+      await beneficiaryProgram.methods
+        .claimVestedTokens(COMPANY_NAME, VESTING_ACCOUNT_ID)
+        .accounts({
+          beneficiary: beneficiary.publicKey,
+          mint,
+          vestingAccount,
+          treasuryTokenAccount,
+          beneficiaryVestingAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([beneficiary])
+        .rpc({ commitment: 'confirmed', skipPreflight: true });
+    } catch (error) {
+      expect(error.toString()).to.includes('NothingToClaim');
+    }
+  });
+
+  it('Admin can revoke a beneficiary Vesting', async () => {
+    const clock = await banksClient.getClock();
+
+    await program.methods
+      .revokeBeneficiaryAccount()
+      .accounts({
+        beneficiary: beneficiary.publicKey,
+        vestingAccount,
+      })
+      .rpc();
+
+    const beneficiaryVestingAccountData =
+      await program.account.beneficiaryAccount.fetch(beneficiaryVestingAccount);
+
+    expect(beneficiaryVestingAccountData.revokeAt.toString()).equal(
+      clock.unixTimestamp.toString()
+    );
+  });
+
+  it('Beneficiary claiming fails after revoking, cant claim anything after that point', async () => {
+    const currentClock = await banksClient.getClock();
+    context.setClock(
+      new Clock(
+        currentClock.slot,
+        currentClock.epochStartTimestamp,
+        currentClock.epoch,
+        currentClock.leaderScheduleEpoch,
+        BigInt(VESTING_END_TIME)
+      )
+    );
+
+    try {
+      await beneficiaryProgram.methods
+        .claimVestedTokens(COMPANY_NAME, VESTING_ACCOUNT_ID)
+        .accounts({
+          beneficiary: beneficiary.publicKey,
+          mint,
+          vestingAccount,
+          treasuryTokenAccount,
+          beneficiaryVestingAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([beneficiary])
+        .rpc({ commitment: 'confirmed', skipPreflight: true });
+    } catch (error) {
+      expect(error.toString()).to.includes('NothingToClaim');
     }
   });
 });
